@@ -20,6 +20,7 @@ import six
 
 import chainer
 from chainer.backends import cuda
+from chainer.backends import native
 from chainer import function
 from chainer import utils
 from chainer.utils import type_check
@@ -226,6 +227,12 @@ class ROIAverageAlign2D(function.Function):
         return top_data,
 
     def forward_gpu(self, inputs):
+        return self.forward_with_backend(cuda, inputs)
+
+    def forward_with_backend(self, backend, inputs):
+        if native.compiler_available():
+            return self.forward_with_backend(native, inputs)
+
         self.retain_inputs((1, 2))
         self._bottom_data_shape = inputs[0].shape
 
@@ -242,7 +249,7 @@ class ROIAverageAlign2D(function.Function):
             sampling_ratio_w = 0
         else:
             sampling_ratio_w = self.sampling_ratio[1]
-        cuda.elementwise(
+        backend.elementwise(
             '''
             raw T bottom_data, T spatial_scale, int32 channels,
             int32 height, int32 width, int32 pooled_height, int32 pooled_width,
@@ -345,6 +352,9 @@ class ROIAverageAlign2D(function.Function):
         return top_data,
 
     def backward_cpu(self, inputs, gy):
+        if native.compiler_available():
+            return self.backward_with_backend(native, inputs, gy)
+
         bottom_rois, bottom_roi_indices = inputs[1:]
         channels, height, width = self._bottom_data_shape[1:]
         bottom_diff = numpy.zeros(self._bottom_data_shape, gy[0].dtype)
@@ -422,6 +432,9 @@ class ROIAverageAlign2D(function.Function):
         return bottom_diff, None, None
 
     def backward_gpu(self, inputs, gy):
+        return self.backward_with_backend(cuda, inputs, gy)
+
+    def backward_with_backend(self, backend, inputs, gy):
         utils.nondeterministic('atomicAdd')
         bottom_rois, bottom_roi_indices = inputs[1:]
         channels, height, width = self._bottom_data_shape[1:]
@@ -435,7 +448,7 @@ class ROIAverageAlign2D(function.Function):
             sampling_ratio_w = 0
         else:
             sampling_ratio_w = self.sampling_ratio[1]
-        cuda.elementwise(
+        backend.elementwise(
             '''
             raw T top_diff,
             int32 num_rois, T spatial_scale,
